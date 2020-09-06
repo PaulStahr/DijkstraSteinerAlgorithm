@@ -285,7 +285,7 @@ DISTANCE_T calculate_steinertree(
       terminal_indizes[i].reserve(dim);
       for (size_t j = 0; j < dim; ++j)
       {
-         std::vector<COOR>::iterator iter = std::find(coords[j].begin(), coords[j].end(), terminals[i][j]);
+         std::vector<COOR>::iterator iter = std::lower_bound(coords[j].begin(), coords[j].end(), terminals[i][j]);
          terminal_indizes[i].push_back(std::distance(coords[j].begin(), iter));
       }
    }
@@ -382,7 +382,7 @@ DISTANCE_T calculate_steinertree(
                last_vertex = current_vertex;
                current_vertex = next_vertex;
             }
-            edges.push_back(std::pair<size_t, size_t>(vertex_kind[i], vertex_kind[current_vertex]));
+            edges.emplace_back(vertex_kind[i], vertex_kind[current_vertex]);
          }
       }
    }
@@ -398,7 +398,7 @@ void track_back(
    }
    else if (n.prev0 == n.prev1)
    {
-      edges.push_back(std::pair<size_t, size_t>(n._v, n.prev0->_v));
+      edges.emplace_back(n._v, n.prev0->_v);
       track_back(edges, *n.prev0);
    }
    else
@@ -427,17 +427,10 @@ DISTANCE_T calculate_steinertree(
    std::vector<BitSetMap<light_node> > node_tree;
    node_tree.reserve(num_vertices);
    node_heap.reserve(num_terminals);
+   for (size_t i = 0; i < num_vertices; ++i)
    {
-      BitSetMap<light_node> init_normal = BitSetMap<light_node>(num_terminals - 1, settings._maximum_heap_width);
-      BitSetMap<light_node> init_empty = BitSetMap<light_node>(0, settings._maximum_heap_width);
-      for (size_t i = 0; i < num_vertices; ++i)
-      {
-         bool excluded = vertices[i]._is_excluded;
-         node_tree.push_back(excluded ? init_empty : init_normal);
-      }
+      node_tree.emplace_back(vertices[i]._is_excluded ? 0 : (num_terminals - 1), settings._maximum_heap_width);
    }
-
-   /*t will be last terminal*/
    for (size_t i = 0; i < num_terminals; ++i)
    {
       if (vertices[instance._terminals[i]]._is_excluded)
@@ -445,6 +438,7 @@ DISTANCE_T calculate_steinertree(
          throw std::runtime_error("Terminal marked as excluded");
       }
    }
+   /*t will be last terminal*/
    for (size_t i = 0; i < num_terminals - 1; ++i)
    {
       node & n = *(new node());
@@ -482,10 +476,10 @@ DISTANCE_T calculate_steinertree(
          node_tree[current_node_v].insert_element(current_terminal_key, *current_node);
          delete &tmp;
       }
-      size_t offet = current_node_v * num_terminals;
-      extracted_nodes[offet + current_terminal_count].push_back(current_node);
-      node_p[offet + current_terminal_count].push_back(current_steinerlength);
-      node_p_key[offet + current_terminal_count].push_back(current_terminal_key);
+      size_t offset = current_node_v * num_terminals;
+      extracted_nodes[offset + current_terminal_count].push_back(current_node);
+      node_p[offset + current_terminal_count].push_back(current_steinerlength);
+      node_p_key[offset + current_terminal_count].push_back(current_terminal_key);
 
       if (current_node_v == instance._terminals[num_terminals - 1] && current_terminal_key == last_terminal_key - 1)
       {
@@ -493,9 +487,8 @@ DISTANCE_T calculate_steinertree(
       }
 
       std::vector<neighbour> const & neighbours = vertices[current_node_v]._neighbours;
-      for (size_t i = 0; i < neighbours.size(); ++i)
+      for (neighbour const & current_neighbour : neighbours)
       {
-         neighbour const & current_neighbour = neighbours[i];
          DISTANCE_T neighbour_steinerlength = current_steinerlength + current_neighbour._distance;
          size_t w_index = current_neighbour._vertex;
          BITSET tmp_terminal_key = current_terminal_key | ((last_terminal_key - 1) & (1 << vertices[w_index]._terminal_number));
@@ -528,9 +521,9 @@ DISTANCE_T calculate_steinertree(
       BITSET key = current_terminal_key | last_terminal_key;  //this implements I union t
       for (uint8_t j = 1; j < num_terminals - current_terminal_count; ++j) //first entry is the zero key, which we ignore
       {
-         std::vector<DISTANCE_T>::const_iterator current_p = node_p[offet + j].begin();
-         std::vector<BITSET> const & current_p_key = node_p_key[offet + j];
-         std::vector<light_node* >::const_iterator current_extracted = extracted_nodes[offet + j].begin();
+         std::vector<DISTANCE_T>::const_iterator current_p = node_p[offset + j].begin();
+         std::vector<BITSET> const & current_p_key = node_p_key[offset + j];
+         std::vector<light_node* >::const_iterator current_extracted = extracted_nodes[offset + j].begin();
          for (size_t i = 0; i < current_p_key.size(); ++i)
          {
             BITSET p_terminal_key = current_p_key[i];
@@ -568,16 +561,10 @@ DISTANCE_T calculate_steinertree(
    }
 
    track_back(edges, *current_node);
-   for (node* node : node_heap)
-   {
-      delete node;
-   }
+   std::for_each(node_heap.begin(), node_heap.end(), UTIL::delete_functor);
    for (size_t i = 0; i < extracted_nodes.size(); ++i)
    {
-      for (light_node *ln : extracted_nodes[i])
-      {
-         delete ln;
-      }
+      std::for_each(extracted_nodes[i].begin(), extracted_nodes[i].end(), UTIL::delete_functor);
    }
    return current_steinerlength;
 }
