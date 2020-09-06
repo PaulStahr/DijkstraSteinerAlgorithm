@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <sstream>
 #include <fstream>
+#include <numeric>
 
 #include "instance_io.h"
 #include "util.h"
@@ -100,7 +101,7 @@ void read_instance(std::ifstream & stream, steiner_instance & instance, size_t d
       instance._sizes.push_back(coords[i].size());
    }
    instance._vertices.clear();
-   instance._vertices.reserve(multiply(instance._sizes));
+   instance._vertices.reserve(std::accumulate(instance._sizes.begin(), instance._sizes.end(), size_t(1), std::multiplies<size_t>()));
 
    std::vector<size_t> indices(dim, 0);
    while (indices.back() < instance._sizes.back())
@@ -139,8 +140,6 @@ void read_instance(std::ifstream & stream, steiner_instance & instance, size_t d
       instance._terminal_coords.insert(instance._terminal_coords.end(), instance._vertices[index]._coords.begin(), instance._vertices[index]._coords.end());
    }
 }
-
-
 
 void print_instance(steiner_instance const & instance)
 {

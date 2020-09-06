@@ -22,13 +22,16 @@ $(BUILT)/application_window.o: $(SRC)/application_window.cpp
 
 $(BUILT)/screensaver.o:$(SRC)/screensaver.cpp
 	g++ -c $(SRC)/screensaver.cpp -o $(BUILT)/screensaver.o $(CFLAGS) -lGL -D_GNU_SOURCE=1 -D_REENTRANT -I/usr/include/SDL -lSDL
-	
+
 bin: $(BUILT)/dijkstra_steiner.o $(BUILT)/instance_io.o $(BUILT)/util.o $(BUILT)/main.o
 	g++ $(BUILT)/dijkstra_steiner.o $(BUILT)/instance_io.o $(BUILT)/util.o $(BUILT)/main.o $(CFLAGS) -o bin
 
 screensaver: $(BUILT)/screensaver.o $(BUILT)/application_window.o $(BUILT)/dijkstra_steiner.o $(BUILT)/instance_io.o $(BUILT)/util.o
 	g++ $(BUILT)/dijkstra_steiner.o $(BUILT)/application_window.o $(BUILT)/instance_io.o $(BUILT)/util.o $(BUILT)/screensaver.o -o screensaver $(CFLAGS) -lGL -D_GNU_SOURCE=1 -D_REENTRANT -I/usr/include/SDL -lSDL
 	#$(pkg-config --cflags --libs sdl)
+
+test: bin
+	for file in ./instances/*; do echo -n "$(basename $${file}) "; ./bin $${file}; done
 
 all: bin screensaver
 

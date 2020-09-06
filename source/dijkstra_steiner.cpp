@@ -27,6 +27,7 @@
 #include <limits>
 #include <cstdint>
 #include <iterator>
+#include <numeric>
 #include "heap.h"
 #include "bitset_map.h"
 #include "util.h"
@@ -37,11 +38,7 @@ struct node_comparator_struct
 {
     bool operator()(node const * a, node const * b) const
     {
-       if (a->_lower_bound_steinerlength == b->_lower_bound_steinerlength)
-       {
-          return a->_v < b->_v;
-       }
-       return a->_lower_bound_steinerlength < b->_lower_bound_steinerlength;
+        return a->_lower_bound_steinerlength < b->_lower_bound_steinerlength || (a->_lower_bound_steinerlength == b->_lower_bound_steinerlength && a->_v < b->_v);
     }
 };
 
@@ -68,10 +65,20 @@ void calculate_position(std::vector<size_t> const & sizes, std::vector<size_t> &
    }
 }
 
+void increment(std::vector<size_t> & indices, std::vector<size_t> const & sizes){
+    size_t k;
+    size_t dim = sizes.size();
+    for (k = 0; k < dim - 1 && indices[k] >= sizes[k] - 1; ++k)
+    {
+        indices[k] = 0;
+    }
+    ++indices[k];
+}
+
 void mark_excluded_vertices(std::vector<std::vector<size_t > > const & terminals, std::vector<size_t> const & sizes, std::vector<bool> & is_excluded)
 {
    is_excluded.clear();
-   size_t size = multiply(sizes);
+   size_t size = std::accumulate(sizes.begin(), sizes.end(), size_t(1), std::multiplies<size_t>());
    is_excluded.resize(size, false);
    size_t dim = sizes.size();
    switch(dim)
@@ -88,24 +95,19 @@ void mark_excluded_vertices(std::vector<std::vector<size_t > > const & terminals
          min_coords.reserve(sizes[1]);
          max_coords.reserve(sizes[1]);
 
-         for (size_t i = 0; i < terminals.size(); ++i)
+         for (std::vector<size_t > const & t : terminals)
          {
-            terminals_by_layer[terminals[i][1]].push_back(terminals[i][0]);
+            terminals_by_layer[t[1]].emplace_back(t[0]);
          }
          for (size_t i = 0; i < sizes[1]; ++i)
          {
             if (terminals_by_layer[i].size() == 0)
             {
                throw std::runtime_error("empty layer");
-               min_coords.push_back(std::numeric_limits<size_t>::max());
-               max_coords.push_back(std::numeric_limits<size_t>::min());
             }
-            else
-            {
-               auto result = std::minmax_element(terminals_by_layer[i].begin(), terminals_by_layer[i].end());
-               min_coords.push_back(*result.first);
-               max_coords.push_back(*result.second);
-            }
+            auto result = std::minmax_element(terminals_by_layer[i].begin(), terminals_by_layer[i].end());
+            min_coords.push_back(*result.first);
+            max_coords.push_back(*result.second);
          }
 
          std::vector<size_t> min_coords_fwd(sizes[1], min_coords[0]);
@@ -116,63 +118,87 @@ void mark_excluded_vertices(std::vector<std::vector<size_t > > const & terminals
          {
             min_coords_fwd[i] = std::min(min_coords_fwd[i - 1], min_coords[i]);
             max_coords_fwd[i] = std::max(max_coords_fwd[i - 1], max_coords[i]);
-            min_coords_bwd[sizes[1] - i - 1] = std::min(min_coords_fwd[sizes[1] - i], min_coords[sizes[1] - i - 1]);
-            max_coords_bwd[sizes[1] - i - 1] = std::max(max_coords_fwd[sizes[1] - i], max_coords[sizes[1] - i - 1]);
+            min_coords_bwd[sizes[1] - i - 1] = std::min(min_coords_bwd[sizes[1] - i], min_coords[sizes[1] - i - 1]);
+            max_coords_bwd[sizes[1] - i - 1] = std::max(max_coords_bwd[sizes[1] - i], max_coords[sizes[1] - i - 1]);
          }
          for (size_t i = 0; i < sizes[1]; ++i)
          {
-            for (size_t j = 0; j < sizes[0]; ++j)
-            {
-               if (j < min_coords_fwd[i] || j > max_coords_fwd[i])
-               {
-                  is_excluded[i * sizes[0]+ j] = true;
-               }
-            }
+            auto iter = is_excluded.begin() + i * sizes[0];
+            std::fill(iter, iter + min_coords_fwd[i], true);
+            std::fill(iter + max_coords_fwd[i] + 1, iter + sizes[0], true);
          }
          for (size_t i = 1; i < sizes[1]; ++i)
          {
+            auto iter = is_excluded.begin() + i * sizes[0];
+            /*if (max_coords_fwd[i - 1] != 0)
+            {
+                std::fill(iter, iter + std::min(min_coords_bwd[i], max_coords_fwd[i - 1] - 1), true);
+            }
+            if (min_coords_fwd[i - 1] != sizes[0])
+            {
+                std::fill(iter + std::max(max_coords_bwd[i], min_coords_fwd[i - 1] + 1), iter + sizes[0], true);
+            }*/
             for (size_t j = 0; j < sizes[0]; ++j)
             {
-               if((j < min_coords_bwd[i] && max_coords_fwd[i - 1] < j)
-                  ||(j > max_coords_bwd[i] && min_coords_fwd[i - 1] > j))
+               if((j < min_coords_bwd[i] && j + 1< max_coords_fwd[i - 1])//TODO looks exactly wrong
+                  ||(j > max_coords_bwd[i] && j > min_coords_fwd[i - 1] + 1))
                {
-                  is_excluded[i * sizes[0]+ j] = true;
+                  iter[j] = true;
                }
             }
          }
+         /*for (size_t i = 0; i < sizes[1]; ++i)
+         {
+             for (size_t j = 0; j < sizes[0]; ++j)
+             {
+                 bool printed = false;
+                 for (size_t k = 0; k < terminals.size(); ++k)
+                 {
+                     if (terminals[k][1] == i && terminals[k][0] == j)
+                     {
+                         std::cout << (is_excluded[i * sizes[0] + j] ? 'T' : 't') << ' ';
+                         printed = true;
+                         break;
+                     }
+                 }
+                 if (!printed)
+                 {
+                    std::cout << is_excluded[i * sizes[0] + j] << ' ';
+                 }
+                }
+             std::cout << std::endl;
+         }*/
          break;
       }
       default:
       {
          /*Project to all 2d-surfaces*/
          std::vector<std::vector<size_t> > terminals_plane(terminals.size(), std::vector<size_t>(2, 0));
+        std::vector<size_t> sizes_plane(2);
+        std::vector<size_t> indices(dim, 0);
+        std::vector<bool> is_excluded_plane;
          for (size_t i = 1; i < dim; ++i)
          {
+            sizes_plane[0] = sizes[i];
             for (size_t j = 0; j < i; ++j)
             {
-               std::vector<size_t> sizes_plane = {sizes[i], sizes[j]};
-               std::vector<bool> is_excluded_plane(sizes_plane[0] * sizes_plane[1], false);
+               sizes_plane[1] = sizes[j];
+               is_excluded_plane.resize(sizes_plane[0] * sizes_plane[1], false);
                for (size_t k = 0; k < terminals.size(); ++k)
                {
                   terminals_plane[k] = {terminals[k][i], terminals[k][j]};
                }
                mark_excluded_vertices(terminals_plane, sizes_plane, is_excluded_plane);
-
-               std::vector<size_t> indices(dim, 0);
+               std::fill(indices.begin(), indices.end(), 0);
                for (size_t index = 0; indices.back() < sizes.back(); ++index)
                {
                   if (is_excluded_plane[indices[i] + sizes_plane[0] * indices[j]])
                   {
                      is_excluded[index] = true;
                   }
-                  /*Enumerate all combination of indices*/
-                  size_t k;
-                  for (k = 0; k < dim - 1 && indices[k] >= sizes[k] - 1; ++k)
-                  {
-                     indices[k] = 0;
-                  }
-                  ++indices[k];
+                  increment(indices, sizes);
                }
+               is_excluded_plane.clear();
             }
          }
          break;
@@ -254,18 +280,13 @@ DISTANCE_T calculate_steinertree(
    steinerpoints.clear();
    edges.clear();
    size_t dim = terminals[0].size();
-   std::vector<std::vector<COOR> > coords;
-   coords.reserve(3);
+   std::vector<std::vector<COOR> > coords(dim);
    for (size_t j = 0; j < dim; ++j)
    {
-      coords.push_back(std::vector<COOR>());
       coords[j].reserve(terminals.size());
-   }
-   for (size_t i = 0; i < terminals.size(); ++i)
-   {
-      for (size_t j = 0; j < dim; ++j)
-      {
-         coords[j].push_back(terminals[i][j]);
+      for (std::vector<COOR> const & tc : terminals)
+      {   
+         coords[j].push_back(tc[j]);
       }
    }
    std::vector<size_t> sizes;
@@ -293,7 +314,7 @@ DISTANCE_T calculate_steinertree(
    mark_excluded_vertices(terminal_indizes, sizes, excluded);
    steiner_instance instance;
    instance._sizes = sizes;
-   instance._vertices.reserve(multiply(instance._sizes));
+   instance._vertices.reserve(std::accumulate(instance._sizes.begin(), instance._sizes.end(), size_t(1), std::multiplies<size_t>()));
 
    std::vector<size_t> indices(dim, 0);
    size_t index = 0;
@@ -308,14 +329,7 @@ DISTANCE_T calculate_steinertree(
       }
       current_v._is_excluded = excluded[index];
       current_v._terminal_number = std::numeric_limits<uint8_t>::max();
-
-      /*Enumerate all combination of indices*/
-      size_t i;
-      for (i = 0; i < dim - 1 && indices[i] >= instance._sizes[i] - 1; ++i)
-      {
-         indices[i] = 0;
-      }
-      ++indices[i];
+      increment(indices, instance._sizes);
       ++index;
    }
 
@@ -408,6 +422,15 @@ void track_back(
    }
 }
 
+struct extracted_node_t
+{
+    light_node *_node;
+    BITSET _key;
+    DISTANCE_T _dist;
+
+    extracted_node_t(light_node *node_, BITSET key_, DISTANCE_T dist_) : _node(node_), _key(key_), _dist(dist_){}
+};
+
 DISTANCE_T calculate_steinertree(
    DISTANCE_T (*lower_bound)(BITSET terminal_key, size_t vertex, steiner_instance const &),
    steiner_instance const & instance,
@@ -420,10 +443,7 @@ DISTANCE_T calculate_steinertree(
    size_t num_terminals = instance._terminals.size();
    std::vector<vertex>::const_iterator vertices = instance._vertices.begin();
    std::vector<node*> node_heap;
-   std::vector<std::vector <DISTANCE_T> > node_p(num_vertices * num_terminals);
-   std::vector<std::vector <BITSET> > node_p_key(num_vertices * num_terminals);
-   std::vector<std::vector <light_node*> > extracted_nodes(num_vertices * num_terminals);
-
+   std::vector<std::vector <extracted_node_t> > extracted(num_vertices * num_terminals);
    std::vector<BitSetMap<light_node> > node_tree;
    node_tree.reserve(num_vertices);
    node_heap.reserve(num_terminals);
@@ -477,10 +497,8 @@ DISTANCE_T calculate_steinertree(
          delete &tmp;
       }
       size_t offset = current_node_v * num_terminals;
-      extracted_nodes[offset + current_terminal_count].push_back(current_node);
-      node_p[offset + current_terminal_count].push_back(current_steinerlength);
-      node_p_key[offset + current_terminal_count].push_back(current_terminal_key);
-
+      extracted[offset + current_terminal_count].emplace_back(current_node, current_terminal_key, current_steinerlength);
+ 
       if (current_node_v == instance._terminals[num_terminals - 1] && current_terminal_key == last_terminal_key - 1)
       {
          break;
@@ -521,15 +539,12 @@ DISTANCE_T calculate_steinertree(
       BITSET key = current_terminal_key | last_terminal_key;  //this implements I union t
       for (uint8_t j = 1; j < num_terminals - current_terminal_count; ++j) //first entry is the zero key, which we ignore
       {
-         std::vector<DISTANCE_T>::const_iterator current_p = node_p[offset + j].begin();
-         std::vector<BITSET> const & current_p_key = node_p_key[offset + j];
-         std::vector<light_node* >::const_iterator current_extracted = extracted_nodes[offset + j].begin();
-         for (size_t i = 0; i < current_p_key.size(); ++i)
+         for (extracted_node_t const & current : extracted[offset + j])
          {
-            BITSET p_terminal_key = current_p_key[i];
+            BITSET p_terminal_key = current._key;
             if (!(p_terminal_key & key)) // this asks for whether the nodes coincide and if J is a subset of I union t complement
             {
-               DISTANCE_T added_steinerlength = current_steinerlength + current_p[i];
+               DISTANCE_T added_steinerlength = current_steinerlength + current._dist;
                BITSET  union_terminal_key = current_terminal_key | p_terminal_key;
                node *k = (node*)current_node_tree.get_element(union_terminal_key);
                if (k == nullptr)
@@ -551,10 +566,10 @@ DISTANCE_T calculate_steinertree(
                {
                   continue;
                }
-               heap::shift_up(node_heap.begin(), node_comparator, node_index_set, k->_heap_index);
                k->_steinerlength = added_steinerlength;
+               heap::shift_up(node_heap.begin(), node_comparator, node_index_set, k->_heap_index);
                k->prev0 = current_node;
-               k->prev1 = current_extracted[i];
+               k->prev1 = current._node;
             }
          }
       }
@@ -562,9 +577,13 @@ DISTANCE_T calculate_steinertree(
 
    track_back(edges, *current_node);
    std::for_each(node_heap.begin(), node_heap.end(), UTIL::delete_functor);
-   for (size_t i = 0; i < extracted_nodes.size(); ++i)
+   for (size_t i = 0; i < extracted.size(); ++i)
    {
-      std::for_each(extracted_nodes[i].begin(), extracted_nodes[i].end(), UTIL::delete_functor);
+      for (size_t j = 0; j < extracted[i].size(); ++j)
+      {
+          delete extracted[i][j]._node;
+      }
+      //std::for_each(extracted_nodes[i].begin(), extracted_nodes[i].end(), UTIL::delete_functor);
    }
    return current_steinerlength;
 }

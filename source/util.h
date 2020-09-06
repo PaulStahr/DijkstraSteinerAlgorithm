@@ -74,17 +74,6 @@ std::string print_vec(std::vector<T> data)
    return ss.str();
 }
 
-template< class T >
-T multiply(std::vector<T> const & vec)
-{
-   T erg = 1;
-   for (size_t i = 0; i< vec.size(); ++i)
-   {
-      erg *= vec[i];
-   }
-   return erg;
-}
-
 namespace UTIL
 {
     struct delete_functor_struct
